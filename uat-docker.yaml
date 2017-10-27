@@ -1,0 +1,235 @@
+version: '2'
+services:
+    otaadmin:
+        container_name: otaadmin
+        image: docker.io/nuwarobotics/otaadmin
+        command: gunicorn -b :5000  -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "ota:create_application()"
+        #command: gunicorn -b 0.0.0.0:5000 -b [::1]:5000 -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "ota:create_application()" 
+        ports:
+            - "5000:5000"
+        env_file: ./otaadmin/otaadmin.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    fps:
+        container_name: fps
+        image: docker.io/nuwarobotics/fps
+        command: gunicorn -b :5001  -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "fps:create_application()"
+        ports:
+            - "5001:5001"
+        env_file: ./fps/fps.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    airtablesync:
+        container_name: airtablesync
+        image: docker.io/nuwarobotics/airtablesync
+        command: gunicorn -b :5002  -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "airtablesync:create_application()"
+        ports:
+            - "5002:5002"
+        env_file: ./airtablesync/airtablesync.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    airtablesync-worker:
+        container_name: airtablesync-worker
+        image: docker.io/nuwarobotics/airtablesync
+        command: celery worker -A airtablesync.celery -Q airtable,airtable-message  -l info -E -P gevent --purge
+        env_file: ./airtablesync/airtablesync.env
+        links:
+            - fps
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    airtablesync-beat:
+        container_name: airtablesync-beat
+        image: docker.io/nuwarobotics/airtablesync
+        command: celery beat -A airtablesync.celery -l info
+        env_file: ./airtablesync/airtablesync.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    adminauthprovider:
+        container_name: adminauthprovider
+        image: docker.io/nuwarobotics/adminauthprovider
+        command: gunicorn -b :5003  -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "authprovider:create_application()"
+        ports:
+            - "5003:5003"
+        env_file: ./adminoauthprovider/adminoauthprovider.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    notification-worker:
+        container_name: notification-worker
+        image: docker.io/nuwarobotics/notificationservice
+        command: celery worker -A notification.celery -Q notification  -l info -E -P gevent --purge
+        env_file: ./notificationservice/notificationservice.env
+        links:
+            - fps
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+
+    chat:
+        container_name: chat
+        image: docker.io/nuwarobotics/chat
+        command: gunicorn -b :5004  -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "chat:create_application()"
+        ports:
+            - "5004:5004"
+        env_file: ./chat/chat.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    chat-worker:
+        container_name: chat-worker
+        image: docker.io/nuwarobotics/chat
+        command: celery worker -A chat.celery   -l info -E -P gevent --purge
+        env_file: ./chat/chat.env
+        links:
+            - fps
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+    chat-proxy:
+        container_name: chat-proxy
+        image: docker.io/nuwarobotics/chat_proxy
+        command: gunicorn -b :5005  -b unix:/tmp/gunicorn.sock -c config/gunicorn.py "chat_proxy:create_application()"
+        volumes:
+            - ./uploadfile:/tmp/upload
+        links:
+            - fps
+        ports:
+            - "5005:5005"
+        env_file: ./chat_proxy/chat_proxy.env
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    chat-proxy-worker:
+        container_name: chat-proxy-worker
+        #build: ./chat_proxy
+        image: docker.io/nuwarobotics/chat_proxy
+        command: celery worker -A chat_proxy.celery   -l info -E -P gevent --purge
+        volumes:
+            - ./uploadfile:/tmp/upload
+        env_file: ./chat_proxy/chat_proxy.env
+        links:
+            - fps
+        logging:
+           driver: "fluentd"
+           options:
+              fluentd-address: "uat-logging:24224"
+              tag: "docker.{{.ID}}"
+        restart: always
+
+    api-ota:
+      container_name: api-ota
+      image: nuwarobotics/api-ota:0.1.6-SNAPSHOT
+      volumes:
+        - /tmp/ota-data/temp:/usr/temp
+      ports:
+        - "7100:7100"
+      logging:
+        driver: "fluentd"
+        options:
+          fluentd-address: "uat-logging:24224"
+          tag: "docker.{{.ID}}"
+      environment:
+        - EXEC_ENV=uat
+      restart: always
+
+    api-auth:
+      container_name: api-auth
+      image: nuwarobotics/api-auth:0.1.6-SNAPSHOT
+      ports:
+        - "5100:5100"
+      logging:
+        driver: "fluentd"
+        options:
+          fluentd-address: "uat-logging:24224"
+          tag: "docker.{{.ID}}"
+      environment:
+        - EXEC_ENV=uat
+      restart: always
+
+    api-mibo:
+      container_name: api-mibo
+      image: nuwarobotics/api-mibo:0.1.14-SNAPSHOT
+      volumes:
+        - /tmp/mibo-data/temp:/usr/temp
+      ports:
+        - "8100:8100"
+      logging:
+        driver: "fluentd"
+        options:
+          fluentd-address: "uat-logging:24224"
+          tag: "docker.{{.ID}}"
+      environment:
+        - EXEC_ENV=uat
+      restart: always
+
+     api-mibo:
+       container_name: api-mibo
+       image: nuwarobotics/api-mibo:0.1.14-SNAPSHOT
+       volumes:
+         - /tmp/mibo-data/temp:/usr/temp
+       ports:
+         - "8100:8100"
+       logging:
+         driver: "fluentd"
+         options:
+           fluentd-address: "uat-logging:24224"
+           tag: "docker.{{.ID}}"
+       environment:
+         - EXEC_ENV=uat
+       restart: always
+
+    flask:
+        container_name: flask
+        image: nuwarobotics/flask
+        ports:
+            - "80:80"
+        logging:
+          driver: "fluentd"
+          options:
+            fluentd-address: "uat-logging:24224"
+            tag: "docker.{{.ID}}"
+        restart: always
